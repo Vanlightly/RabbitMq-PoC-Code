@@ -11,13 +11,13 @@ namespace RabbitMqMessageTracking
     public class MessageTracker<T> : IMessageTracker<T>
     {
         // To keep all messages to be sent
-        private List<MessageState<T>> _resultsMaster;
+        private List<MessageState<T>> _statesMaster;
 
         // For high performance access based on delivery tag (sequence number)
-        private ConcurrentDictionary<ulong, MessageState<T>> _resultsByDeliveryTag;
+        private ConcurrentDictionary<ulong, MessageState<T>> _statesByDeliveryTag;
 
         // For high performance access based on message id
-        private ConcurrentDictionary<string, MessageState<T>> _resultsByMessageId;
+        private ConcurrentDictionary<string, MessageState<T>> _statesByMessageId;
 
 
         private int _attempt;
@@ -32,25 +32,25 @@ namespace RabbitMqMessageTracking
 
         public MessageTracker(List<T> payloads)
         {
-            _resultsByDeliveryTag = new ConcurrentDictionary<ulong, MessageState<T>>();
-            _resultsByMessageId = new ConcurrentDictionary<string, MessageState<T>>();
-            _resultsMaster = new List<MessageState<T>>();
+            _statesByDeliveryTag = new ConcurrentDictionary<ulong, MessageState<T>>();
+            _statesByMessageId = new ConcurrentDictionary<string, MessageState<T>>();
+            _statesMaster = new List<MessageState<T>>();
 
             foreach (var payload in payloads)
             {
                 Interlocked.Increment(ref _messageCount);
                 var outgoingMessage = new MessageState<T>(payload);
-                _resultsByMessageId.TryAdd(outgoingMessage.MessageId, outgoingMessage);
-                _resultsMaster.Add(outgoingMessage);
+                _statesByMessageId.TryAdd(outgoingMessage.MessageId, outgoingMessage);
+                _statesMaster.Add(outgoingMessage);
             }
         }
 
         private MessageTracker(ConcurrentDictionary<string, MessageState<T>> resultsByMessageId,
             List<MessageState<T>> results)
         {
-            _resultsByDeliveryTag = new ConcurrentDictionary<ulong, MessageState<T>>();
-            _resultsByMessageId = resultsByMessageId;
-            _resultsMaster = results;
+            _statesByDeliveryTag = new ConcurrentDictionary<ulong, MessageState<T>>();
+            _statesByMessageId = resultsByMessageId;
+            _statesMaster = results;
         }
 
         public MessageTracker<T> GetCloneWithWipedDeliveryTags()
@@ -58,19 +58,19 @@ namespace RabbitMqMessageTracking
             // no need to keep messages that will not be retried in
             // the message id dictionary
             var resultsByMessageId = new ConcurrentDictionary<string, MessageState<T>>();
-            foreach (var key in _resultsByMessageId.Keys)
+            foreach (var key in _statesByMessageId.Keys)
             {
-                var result = _resultsByMessageId[key];
+                var result = _statesByMessageId[key];
                 if (CannotBeRetried(result.Status))
                     resultsByMessageId.TryAdd(key, result);
             }
 
-            return new MessageTracker<T>(resultsByMessageId, _resultsMaster);
+            return new MessageTracker<T>(resultsByMessageId, _statesMaster);
         }
 
         public List<MessageState<T>> GetRetryableMessages()
         {
-            return _resultsMaster.Where(x => !CannotBeRetried(x.Status)).ToList();
+            return _statesMaster.Where(x => !CannotBeRetried(x.Status)).ToList();
         }
 
         private bool CannotBeRetried(SendStatus status)
@@ -85,7 +85,7 @@ namespace RabbitMqMessageTracking
 
         public void SetDeliveryTag(ulong deliveryTag, MessageState<T> outgoingMessage)
         {
-            _resultsByDeliveryTag.TryAdd(deliveryTag, outgoingMessage);
+            _statesByDeliveryTag.TryAdd(deliveryTag, outgoingMessage);
         }
 
         public void SetStatus(ulong deliveryTag, bool multiple, SendStatus status)
@@ -102,24 +102,15 @@ namespace RabbitMqMessageTracking
                     for (ulong i = _lastAcknowledgedDeliveryTag + 1; i <= deliveryTag; i++)
                     {
                         Interlocked.Increment(ref _acknowledgedCount);
-                        if (_resultsByDeliveryTag.ContainsKey(i))
-                        {
-                            var result = _resultsByDeliveryTag[i];
-                            result.Status = status;
-                            result.Description = description;
-                        }
+                        var messageState = _statesByDeliveryTag[i];
+                        SetSendStatus(messageState, status, description);
                     }
                 }
                 else
                 {
                     Interlocked.Increment(ref _acknowledgedCount);
-
-                    if (_resultsByDeliveryTag.ContainsKey(deliveryTag))
-                    {
-                        var result = _resultsByDeliveryTag[deliveryTag];
-                        result.Status = status;
-                        result.Description = description;
-                    }
+                    var messageState = _statesByDeliveryTag[deliveryTag];
+                    SetSendStatus(messageState, status, description);
                 }
 
                 _lastAcknowledgedDeliveryTag = deliveryTag;
@@ -134,13 +125,8 @@ namespace RabbitMqMessageTracking
         public void SetStatus(string messageId, SendStatus status, string description)
         {
             Interlocked.Increment(ref _acknowledgedCount);
-
-            if (_resultsByMessageId.ContainsKey(messageId))
-            {
-                var result = _resultsByMessageId[messageId];
-                result.Status = status;
-                result.Description = description;
-            }
+            var messageState = _statesByMessageId[messageId];
+            SetSendStatus(messageState, status, description);
         }
 
         public void RegisterChannelClosed(string reason)
@@ -158,12 +144,12 @@ namespace RabbitMqMessageTracking
 
         public bool ShouldRetry()
         {
-            return !_resultsMaster.All(x => x.Status == SendStatus.Success || x.Status == SendStatus.NoExchangeFound || x.Status == SendStatus.Unroutable);
+            return !_statesMaster.All(x => x.Status == SendStatus.Success || x.Status == SendStatus.NoExchangeFound || x.Status == SendStatus.Unroutable);
         }
 
         public List<MessageState<T>> GetMessageStates()
         {
-            return _resultsMaster;
+            return _statesMaster;
         }
 
         public bool AllMessagesAcknowledged()
@@ -184,6 +170,21 @@ namespace RabbitMqMessageTracking
         public Exception UnexpectedException
         {
             get { return _unexpectedException; }
+        }
+
+        private void SetSendStatus(MessageState<T> messageState, SendStatus status, string description)
+        {
+            if (status == SendStatus.NoExchangeFound)
+            {
+                foreach (var state in _statesMaster)
+                    state.Status = status;
+            }
+            // unroutable messages get a BasicReturn followed by a BasicAck, so we want to ignore that ack
+            else if (messageState.Status != SendStatus.Unroutable)
+            {
+                messageState.Status = status;
+                messageState.Description = description;
+            }
         }
     }
 }

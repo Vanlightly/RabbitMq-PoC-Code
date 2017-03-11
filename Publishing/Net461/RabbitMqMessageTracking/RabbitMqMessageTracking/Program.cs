@@ -68,7 +68,8 @@ namespace RabbitMqMessageTracking
 
                 if (messageTracker.PublishingInterrupted)
                 {
-                    Console.WriteLine("Publishing was interrupted and retries occurred");
+                    var maxSendCount = messageTracker.GetMessageStates().Max(x => x.SendCount);
+                    Console.WriteLine("Publishing was interrupted, with " + (maxSendCount -1) + " retries made");
                     Console.WriteLine("Interruption reason: " + messageTracker.InterruptionReason);
                     Console.WriteLine("Number of republished messages: " + messageTracker.GetMessageStates()
                                                                            .Count(x => x.SendCount > 1));
@@ -77,10 +78,10 @@ namespace RabbitMqMessageTracking
                 int messagesAfter = GetMessageCount();
                 int newMessagesInQueue = messagesAfter - messagesBefore;
 
-                if (newMessagesInQueue == number)
-                    Console.WriteLine("No duplicate messages created");
-                else
+                if (newMessagesInQueue > number)
                     Console.WriteLine((newMessagesInQueue - number) + " duplicate messages created!!!!!!");
+                else
+                    Console.WriteLine("No duplicate messages created");
 
                 Console.WriteLine("");
                 Console.WriteLine("Final message status counts:");

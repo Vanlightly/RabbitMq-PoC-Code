@@ -10,11 +10,11 @@ namespace RabbitMqMessageTracking
     {
         public MessageState(T payload)
         {
-            Payload = payload;
+            MessagePayload = payload;
             MessageId = Guid.NewGuid().ToString();
         }
 
-        public T Payload { get; set; }
+        public T MessagePayload { get; set; }
         public SendStatus Status { get; set; }
         public string Description { get; set; }
         public string MessageId { get; set; }

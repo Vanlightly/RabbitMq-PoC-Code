@@ -94,7 +94,7 @@ namespace RabbitMqMessageTracking
 
         private async Task SendBatchAsync<T>(string exchange,
             string routingKey,
-            List<MessageState<T>> outgoingMessages,
+            List<MessageState<T>> messageStates,
             MessageTracker<T> messageTracker,
             int messageBatchSize)
         {
@@ -112,44 +112,48 @@ namespace RabbitMqMessageTracking
                     channel.ModelShutdown += (o, a) => ModelShutdown(a, messageTracker);
 
                     int counter = 0;
-                    foreach (var message in outgoingMessages)
+                    foreach (var messageState in messageStates)
                     {
                         counter++;
-
-                        var messageJson = JsonConvert.SerializeObject(message.Payload);
+                        // create the RabbitMq message from the MessagePayload (the Order class)
+                        var messageJson = JsonConvert.SerializeObject(messageState.MessagePayload);
                         var body = Encoding.UTF8.GetBytes(messageJson);
                         var properties = channel.CreateBasicProperties();
                         properties.Persistent = true;
-                        properties.MessageId = message.MessageId;
-                        properties.Expiration = "43200000";
+                        properties.MessageId = messageState.MessageId;
                         properties.Headers = new Dictionary<string, object>();
-
-                        if (message.SendCount > 0)
+                       
+                        if (messageState.SendCount > 0)
                             properties.Headers.Add("republished", true);
 
+                        // get the next sequence number (delivery tag) and register it with this MessageState object
                         var deliveryTag = channel.NextPublishSeqNo;
-                        messageTracker.SetDeliveryTag(deliveryTag, message);
-                        message.Status = SendStatus.PendingResponse;
-                        message.SendCount++;
+                        messageTracker.SetDeliveryTag(deliveryTag, messageState);
+                        messageState.Status = SendStatus.PendingResponse;
+                        messageState.SendCount++;
 
+                        // send the message
                         try
                         {
                             channel.BasicPublish(exchange: exchange,
-                                                 routingKey: routingKey,
-                                                 basicProperties: properties,
-                                                 body: body,
-                                                 mandatory: true);
+                                                    routingKey: routingKey,
+                                                    basicProperties: properties,
+                                                    body: body,
+                                                    mandatory: true);
 
                             if (counter % messageBatchSize == 0)
                                 channel.WaitForConfirms(TimeSpan.FromMinutes(1));
                         }
                         catch (OperationInterruptedException ex)
                         {
-                            messageTracker.SetStatus(message.MessageId, SendStatus.Failed, ex.Message);
+                            if (ex.ShutdownReason.ReplyCode == 404)
+                                messageTracker.SetStatus(messageState.MessageId, SendStatus.NoExchangeFound, ex.Message);
+                            else
+                                messageTracker.SetStatus(messageState.MessageId, SendStatus.Failed, ex.Message);
                         }
                         catch (Exception ex)
                         {
-                            messageTracker.SetStatus(message.MessageId, SendStatus.Failed, ex.Message);
+                            messageTracker.SetStatus(messageState.MessageId, SendStatus.Failed, ex.Message);
                         }
 
                         if (channel.IsClosed || messageTracker.PublishingInterrupted)
