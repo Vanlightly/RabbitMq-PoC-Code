@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace RabbitMqMessageTracking
 {
-    public class MessageState<T>
+    public class MessageState<T> : IMessageState<T>
     {
         public MessageState(T payload)
         {

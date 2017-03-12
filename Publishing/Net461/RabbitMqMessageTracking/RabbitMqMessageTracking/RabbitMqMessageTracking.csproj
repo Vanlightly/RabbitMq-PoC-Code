@@ -52,12 +52,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BulkMessagePublisher.cs" />
+    <Compile Include="IMessageState.cs" />
     <Compile Include="IMessageTracker.cs" />
     <Compile Include="MessageState.cs" />
     <Compile Include="MessageTracker.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SendStatus.cs" />
+    <Compile Include="SingleMessagePublisher.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
