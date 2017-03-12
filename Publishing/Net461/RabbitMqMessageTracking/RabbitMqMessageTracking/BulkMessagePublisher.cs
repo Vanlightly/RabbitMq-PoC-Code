@@ -42,7 +42,7 @@ namespace RabbitMqMessageTracking
 
             try
             {
-                await SendBatchWithRetryAsync(exchange, routingKey, messageTracker.GetMessageStates(), messageTracker, retryLimit, retryPeriodMs, 1, messageBatchSize);
+                messageTracker = await SendBatchWithRetryAsync(exchange, routingKey, messageTracker.GetMessageStates(), messageTracker, retryLimit, retryPeriodMs, 1, messageBatchSize);
             }
             catch (Exception ex)
             {
@@ -52,7 +52,7 @@ namespace RabbitMqMessageTracking
             return messageTracker;
         }
 
-        private async Task<IMessageTracker<T>> SendBatchWithRetryAsync<T>(string exchange,
+        private async Task<MessageTracker<T>> SendBatchWithRetryAsync<T>(string exchange,
             string routingKey,
             List<MessageState<T>> outgoingMessages,
             MessageTracker<T> messageTracker,
@@ -98,6 +98,8 @@ namespace RabbitMqMessageTracking
             MessageTracker<T> messageTracker,
             int messageBatchSize)
         {
+            messageTracker.AttemptsMade++;
+
             var factory = new ConnectionFactory() { HostName = "localhost" };
             factory.AutomaticRecoveryEnabled = false;
 

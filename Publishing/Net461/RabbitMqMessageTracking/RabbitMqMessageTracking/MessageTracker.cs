@@ -46,26 +46,28 @@ namespace RabbitMqMessageTracking
         }
 
         private MessageTracker(ConcurrentDictionary<string, MessageState<T>> resultsByMessageId,
-            List<MessageState<T>> results)
+            List<MessageState<T>> results,
+            int attemptsMade)
         {
             _statesByDeliveryTag = new ConcurrentDictionary<ulong, MessageState<T>>();
             _statesByMessageId = resultsByMessageId;
             _statesMaster = results;
+            AttemptsMade = attemptsMade;
         }
 
         public MessageTracker<T> GetCloneWithWipedDeliveryTags()
         {
             // no need to keep messages that will not be retried in
             // the message id dictionary
-            var resultsByMessageId = new ConcurrentDictionary<string, MessageState<T>>();
+            var statesByMessageId = new ConcurrentDictionary<string, MessageState<T>>();
             foreach (var key in _statesByMessageId.Keys)
             {
                 var result = _statesByMessageId[key];
-                if (CannotBeRetried(result.Status))
-                    resultsByMessageId.TryAdd(key, result);
+                if (!CannotBeRetried(result.Status))
+                    statesByMessageId.TryAdd(key, result);
             }
 
-            return new MessageTracker<T>(resultsByMessageId, _statesMaster);
+            return new MessageTracker<T>(statesByMessageId, _statesMaster, AttemptsMade);
         }
 
         public List<MessageState<T>> GetRetryableMessages()
@@ -171,6 +173,8 @@ namespace RabbitMqMessageTracking
         {
             get { return _unexpectedException; }
         }
+
+        public int AttemptsMade { get; set; }
 
         private void SetSendStatus(MessageState<T> messageState, SendStatus status, string description)
         {

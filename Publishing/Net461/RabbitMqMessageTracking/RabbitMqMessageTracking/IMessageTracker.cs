@@ -12,5 +12,6 @@ namespace RabbitMqMessageTracking
         bool PublishingInterrupted { get; }
         string InterruptionReason { get; }
         Exception UnexpectedException { get; }
+        int AttemptsMade { get; }
     }
 }
