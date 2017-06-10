@@ -22,22 +22,26 @@ namespace RabbitMqMessageTracking
     {
         static void Main(string[] args)
         {
+            MainAsync().Wait();
+        }
+
+        static async Task MainAsync()
+        {
             Console.WriteLine("This code is explained in my blog series on RabbitMq Publishing starting at: http://jack-vanlightly.com/blog/2017/3/11/sending-messages-in-bulk-and-tracking-delivery-status-rabbitmq-publishing-part-2");
             Console.WriteLine("Enter 2 for the code of Part 2");
             Console.WriteLine("Enter 3 for the code of Part 3");
             int part = int.Parse(Console.ReadLine());
 
             if (part == 2)
-                Part2();
+                await Part2().ConfigureAwait(false);
             else if (part == 3)
-                Part3();
-
+                await Part3().ConfigureAwait(false);
         }
 
 
         #region .: Part 2 :.
 
-        private static void Part2()
+        private static async Task Part2()
         {
             SetupPart2();
 
@@ -76,10 +80,8 @@ namespace RabbitMqMessageTracking
                 var sw = new Stopwatch();
                 sw.Start();
                 var bulkEventPublisher = new BulkMessagePublisher();
-                var messageStatesTask = bulkEventPublisher.SendBatchWithRetryAsync(exchange, routingKey, orders, 2, 1000, messageBatchSize);
-                messageStatesTask.Wait();
-                var messageTracker = messageStatesTask.Result;
-
+                var messageTracker = await bulkEventPublisher.SendBatchWithRetryAsync(exchange, routingKey, orders, 2, 1000, messageBatchSize, TimeSpan.FromSeconds(1));
+                
                 sw.Stop();
                 Console.WriteLine("Milliseconds elapsed: " + (int)sw.Elapsed.TotalMilliseconds);
 
@@ -117,6 +119,9 @@ namespace RabbitMqMessageTracking
 
         private static void SetupPart2()
         {
+            DeletePart2();
+            DeletePart3();
+
             var factory = new ConnectionFactory() { HostName = "localhost" };
             using (var connection = factory.CreateConnection())
             {
@@ -136,8 +141,8 @@ namespace RabbitMqMessageTracking
             {
                 using (var channel = connection.CreateModel())
                 {
-                    channel.ExchangeDelete("orders", false);
-                    channel.QueueDelete("orders.new", false);
+                    channel.ExchangeDelete("order", false);
+                    channel.QueueDelete("order.new", false);
                 }
             }
         }
@@ -160,7 +165,7 @@ namespace RabbitMqMessageTracking
 
         #region .: Part 3 :.
 
-        private static void Part3()
+        private static async Task Part3()
         {
             SetupPart3();
 
@@ -200,10 +205,8 @@ namespace RabbitMqMessageTracking
                 var sw = new Stopwatch();
                 sw.Start();
                 var bulkEventPublisher = new BulkMessagePublisher();
-                var messageStatesTask = bulkEventPublisher.SendBatchWithRetryAsync(exchange, routingKey, orders, 2, 1000, messageBatchSize);
-                messageStatesTask.Wait();
-                var messageTracker = messageStatesTask.Result;
-
+                var messageTracker = await bulkEventPublisher.SendBatchWithRetryAsync(exchange, routingKey, orders, 2, 1000, messageBatchSize, TimeSpan.FromSeconds(1));
+                
                 sw.Stop();
                 Console.WriteLine("Milliseconds elapsed: " + (int)sw.Elapsed.TotalMilliseconds);
 
@@ -232,6 +235,21 @@ namespace RabbitMqMessageTracking
                         Console.WriteLine(group.Key + " " + group.Count() + " : " + group.First().Description);
                     else
                         Console.WriteLine(group.Key + " " + group.Count());
+                }
+            }
+        }
+
+        private static void DeletePart3()
+        {
+            var factory = new ConnectionFactory() { HostName = "localhost" };
+            using (var connection = factory.CreateConnection())
+            {
+                using (var channel = connection.CreateModel())
+                {
+                    channel.ExchangeDelete("order", false);
+                    channel.QueueDelete("order.new", false);
+                    channel.ExchangeDelete("order.unroutable", false);
+                    channel.QueueDelete("order.unroutable", false);
                 }
             }
         }

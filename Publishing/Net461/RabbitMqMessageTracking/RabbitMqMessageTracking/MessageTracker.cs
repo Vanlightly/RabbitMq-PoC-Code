@@ -22,13 +22,9 @@ namespace RabbitMqMessageTracking
 
         private int _attempt;
         private int _messageCount;
-        private int _acknowledgedCount;
         private bool _channelClosed;
         private string _channelClosedReason;
         private Exception _unexpectedException;
-
-        private ulong _lastAcknowledgedDeliveryTag;
-        private object _syncObj = new object();
 
         public MessageTracker(List<T> payloads)
         {
@@ -38,7 +34,6 @@ namespace RabbitMqMessageTracking
 
             foreach (var payload in payloads)
             {
-                Interlocked.Increment(ref _messageCount);
                 var outgoingMessage = new MessageState<T>(payload);
                 _statesByMessageId.TryAdd(outgoingMessage.MessageId, outgoingMessage);
                 _statesMaster.Add(outgoingMessage);
@@ -55,7 +50,32 @@ namespace RabbitMqMessageTracking
             AttemptsMade = attemptsMade;
         }
 
-        public MessageTracker<T> GetCloneWithWipedDeliveryTags()
+        public void AssignStatuses()
+        {
+            var orderedList = _statesMaster.Where(x => x.SequenceNumber > 0).OrderByDescending(x => x.SequenceNumber).ToList();
+
+            if (orderedList.Any())
+            {
+                SendStatus lastAcknowledgedStatus = orderedList.First().Status;
+
+                foreach(var messageState in orderedList)
+                {
+                    if(messageState.Acknowledged)
+                        lastAcknowledgedStatus = messageState.Status;
+
+                    if (messageState.Status == SendStatus.PendingResponse)
+                    {
+                        messageState.Status = lastAcknowledgedStatus;
+                        messageState.Acknowledged = true;
+                    }
+                }
+            }
+
+            foreach (var messageState in _statesMaster)
+                messageState.SequenceNumber = 0;
+        }
+
+        public MessageTracker<T> GetCloneWithResetAcknowledgements()
         {
             // no need to keep messages that will not be retried in
             // the message id dictionary
@@ -63,8 +83,11 @@ namespace RabbitMqMessageTracking
             foreach (var key in _statesByMessageId.Keys)
             {
                 var result = _statesByMessageId[key];
-                if (!CannotBeRetried(result.Status))
+                if (CanBeRetried(result.Status))
+                {
+                    result.Acknowledged = false;
                     statesByMessageId.TryAdd(key, result);
+                }
             }
 
             return new MessageTracker<T>(statesByMessageId, _statesMaster, AttemptsMade);
@@ -73,6 +96,11 @@ namespace RabbitMqMessageTracking
         public List<MessageState<T>> GetRetryableMessages()
         {
             return _statesMaster.Where(x => !CannotBeRetried(x.Status)).ToList();
+        }
+
+        private bool CanBeRetried(SendStatus status)
+        {
+            return !CannotBeRetried(status);
         }
 
         private bool CannotBeRetried(SendStatus status)
@@ -87,36 +115,19 @@ namespace RabbitMqMessageTracking
 
         public void SetDeliveryTag(ulong deliveryTag, MessageState<T> outgoingMessage)
         {
+            outgoingMessage.SequenceNumber = deliveryTag;
             _statesByDeliveryTag.TryAdd(deliveryTag, outgoingMessage);
         }
 
-        public void SetStatus(ulong deliveryTag, bool multiple, SendStatus status)
+        public void SetStatus(ulong deliveryTag, SendStatus status)
         {
-            SetStatus(deliveryTag, multiple, status, "");
+            SetStatus(deliveryTag, status, "");
         }
 
-        public void SetStatus(ulong deliveryTag, bool multiple, SendStatus status, string description)
+        public void SetStatus(ulong deliveryTag, SendStatus status, string description)
         {
-            lock (_syncObj)
-            {
-                if (multiple)
-                {
-                    for (ulong i = _lastAcknowledgedDeliveryTag + 1; i <= deliveryTag; i++)
-                    {
-                        Interlocked.Increment(ref _acknowledgedCount);
-                        var messageState = _statesByDeliveryTag[i];
-                        SetSendStatus(messageState, status, description);
-                    }
-                }
-                else
-                {
-                    Interlocked.Increment(ref _acknowledgedCount);
-                    var messageState = _statesByDeliveryTag[deliveryTag];
-                    SetSendStatus(messageState, status, description);
-                }
-
-                _lastAcknowledgedDeliveryTag = deliveryTag;
-            }
+            var messageState = _statesByDeliveryTag[deliveryTag];
+            SetSendStatus(messageState, status, description);
         }
 
         public void SetStatus(string messageId, SendStatus status)
@@ -126,7 +137,6 @@ namespace RabbitMqMessageTracking
 
         public void SetStatus(string messageId, SendStatus status, string description)
         {
-            Interlocked.Increment(ref _acknowledgedCount);
             var messageState = _statesByMessageId[messageId];
             SetSendStatus(messageState, status, description);
         }
@@ -154,11 +164,6 @@ namespace RabbitMqMessageTracking
             return _statesMaster;
         }
 
-        public bool AllMessagesAcknowledged()
-        {
-            return _messageCount == _acknowledgedCount;
-        }
-
         public bool PublishingInterrupted
         {
             get { return _channelClosed || _unexpectedException != null; }
@@ -181,13 +186,17 @@ namespace RabbitMqMessageTracking
             if (status == SendStatus.NoExchangeFound)
             {
                 foreach (var state in _statesMaster)
+                {
                     state.Status = status;
+                    state.Acknowledged = true;
+                }
             }
             // unroutable messages get a BasicReturn followed by a BasicAck, so we want to ignore that ack
             else if (messageState.Status != SendStatus.Unroutable)
             {
                 messageState.Status = status;
                 messageState.Description = description;
+                messageState.Acknowledged = true;
             }
         }
     }

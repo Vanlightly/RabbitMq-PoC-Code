@@ -16,6 +16,8 @@ namespace RabbitMqMessageTracking
 
         public T MessagePayload { get; set; }
         public SendStatus Status { get; set; }
+        public bool Acknowledged { get; set; }
+        public ulong SequenceNumber { get; set; }
         public string Description { get; set; }
         public string MessageId { get; set; }
         public int SendCount { get; set; }

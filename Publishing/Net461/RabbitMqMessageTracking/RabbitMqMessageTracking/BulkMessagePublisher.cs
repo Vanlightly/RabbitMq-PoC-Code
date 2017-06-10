@@ -12,16 +12,35 @@ namespace RabbitMqMessageTracking
 {
     public class BulkMessagePublisher
     {
+        /// <summary>
+        /// Sends the messages and tracks the send status of each message. Any exceptions are controlled and added to the returned IMessageTracker
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="exchange">The exchange to send to</param>
+        /// <param name="routingKey">The routing key, empty string is permitted</param>
+        /// <param name="messages">A list of objects that will be converted to JSON and sent as individual messages</param>
+        /// <param name="messageBatchSize">Publishing will publish this number of messages at a time and then pause and wait for confirmation of delivery. Once an acknowledgement
+        /// of each message has been received, or a timeout is reache, the next batch is sent</param>
+        /// <param name="safetyPeriod">Adds extra guarantees of correct message send status. Confirms can be received out of order. This means that once all
+        /// messages have been sent the channel can be closed prematurely due to incorrect ordering of confirms. The safety period keeps the channel open for an extra period, just in case we
+        /// receive more confirms. This safety period is not required when the messageBatchSize is 1</param>
+        /// <returns>A message tracker that provides you with the delivery status (to the exchange and queues - not the consumer) information, including errors that may have occurred</returns>
         public async Task<IMessageTracker<T>> SendMessagesAsync<T>(string exchange,
             string routingKey,
             List<T> messages,
-            int messageBatchSize)
+            int messageBatchSize,
+            TimeSpan safetyPeriod)
         {
             var messageTracker = new MessageTracker<T>(messages);
 
             try
             {
-                await SendBatchAsync(exchange, routingKey, messageTracker.GetMessageStates(), messageTracker, messageBatchSize);
+                await SendBatchAsync(exchange, 
+                    routingKey, 
+                    messageTracker.GetMessageStates(), 
+                    messageTracker, 
+                    messageBatchSize,
+                    safetyPeriod).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -31,18 +50,43 @@ namespace RabbitMqMessageTracking
             return messageTracker;
         }
 
+        /// <summary>
+        /// Sends the messages and tracks the send status of each message. Any exceptions are controlled and added to the returned IMessageTracker.
+        /// Additionally, this overload provides retries.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="exchange">The exchange to send to</param>
+        /// <param name="routingKey">The routing key, empty string is permitted</param>
+        /// <param name="messages">A list of objects that will be converted to JSON and sent as individual messages</param>
+        /// <param name="retryLimit">The number of retries to perform. If you set it to 3 for example, then up to 4 attempts are made in total</param>
+        /// <param name="retryPeriodMs">Milliseconds between each attempt</param>
+        /// <param name="messageBatchSize">Publishing will publish this number of messages at a time and then pause and wait for confirmation of delivery. Once an acknowledgement
+        /// of each message has been received, or a timeout is reache, the next batch is sent</param>
+        /// <param name="safetyPeriod">Adds extra guarantees of correct message send status. Confirms can be received out of order. This means that once all
+        /// messages have been sent the channel can be closed prematurely due to incorrect ordering of confirms. The safety period keeps the channel open for an extra period, just in case we
+        /// receive more confirms. This safety period is not required when the messageBatchSize is 1</param>
+        /// <returns>A message tracker that provides you with the delivery status (to the exchange and queues - not the consumer) information, including errors that may have occurred</returns>
         public async Task<IMessageTracker<T>> SendBatchWithRetryAsync<T>(string exchange,
             string routingKey,
             List<T> messages,
             byte retryLimit,
             short retryPeriodMs,
-            int messageBatchSize)
+            int messageBatchSize,
+            TimeSpan safetyPeriod)
         {
             var messageTracker = new MessageTracker<T>(messages);
 
             try
             {
-                messageTracker = await SendBatchWithRetryAsync(exchange, routingKey, messageTracker.GetMessageStates(), messageTracker, retryLimit, retryPeriodMs, 1, messageBatchSize);
+                messageTracker = await SendBatchWithRetryAsync(exchange, 
+                    routingKey, 
+                    messageTracker.GetMessageStates(), 
+                    messageTracker, 
+                    retryLimit, 
+                    retryPeriodMs, 
+                    1, 
+                    messageBatchSize,
+                    safetyPeriod).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -59,17 +103,27 @@ namespace RabbitMqMessageTracking
             byte retryLimit,
             short retryPeriodMs,
             byte attempt,
-            int messageBatchSize)
+            int messageBatchSize,
+            TimeSpan safetyPeriod)
         {
             Console.WriteLine("Making attempt #" + attempt);
 
             try
             {
-                await SendBatchAsync(exchange, routingKey, outgoingMessages, messageTracker, messageBatchSize);
+                await SendBatchAsync(exchange,
+                    routingKey, 
+                    outgoingMessages, 
+                    messageTracker, 
+                    messageBatchSize,
+                    safetyPeriod).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 messageTracker.RegisterUnexpectedException(ex);
+            }
+            finally
+            {
+                messageTracker.AssignStatuses();
             }
 
             if (messageTracker.ShouldRetry() && (attempt - 1) <= retryLimit)
@@ -77,14 +131,24 @@ namespace RabbitMqMessageTracking
                 attempt++;
 
                 Console.WriteLine("Will make attempt #" + attempt + " in " + retryPeriodMs + "ms");
-                await Task.Delay(retryPeriodMs);
+                await Task.Delay(retryPeriodMs).ConfigureAwait(false);
 
-                // delivery tags are reset on a new channel so we need to get a cloned tracker with the non retryable payloads
+                // delivery tags are reset on a new channel so we need to get a cloned tracker with:
+                // - an empty delivert tag dictionary
+                // - acknowledgement flag set to false on all message states that we will retry
                 // we also get the payloads that can be retried and then do another batch send with just these
-                var newMessageTracker = messageTracker.GetCloneWithWipedDeliveryTags();
+                var newMessageTracker = messageTracker.GetCloneWithResetAcknowledgements();
                 var retryablePayloads = messageTracker.GetRetryableMessages();
 
-                return await SendBatchWithRetryAsync(exchange, routingKey, retryablePayloads, newMessageTracker, retryLimit, retryPeriodMs, attempt, messageBatchSize);
+                return await SendBatchWithRetryAsync(exchange, 
+                    routingKey, 
+                    retryablePayloads, 
+                    newMessageTracker, 
+                    retryLimit, 
+                    retryPeriodMs, 
+                    attempt, 
+                    messageBatchSize,
+                    safetyPeriod).ConfigureAwait(false);
             }
             else
             {
@@ -96,7 +160,8 @@ namespace RabbitMqMessageTracking
             string routingKey,
             List<MessageState<T>> messageStates,
             MessageTracker<T> messageTracker,
-            int messageBatchSize)
+            int messageBatchSize,
+            TimeSpan safetyPeriod)
         {
             messageTracker.AttemptsMade++;
 
@@ -162,19 +227,25 @@ namespace RabbitMqMessageTracking
                             return;
                     }
 
-                    await Task.Run(() => channel.WaitForConfirms(TimeSpan.FromMinutes(1)));
+                    channel.WaitForConfirms(TimeSpan.FromMinutes(1));
+
+                    if (safetyPeriod.Ticks > 0)
+                    {
+                        // add extra buffer in case of out of order last confirm
+                        await Task.Delay(safetyPeriod).ConfigureAwait(false);
+                    }
                 }
             } // already disposed exception here
         }
 
         private void AckCallback<T>(BasicAckEventArgs ea, MessageTracker<T> messageTracker)
         {
-            messageTracker.SetStatus(ea.DeliveryTag, ea.Multiple, SendStatus.Success);
+            messageTracker.SetStatus(ea.DeliveryTag, SendStatus.Success);
         }
 
         private void NackCallback<T>(BasicNackEventArgs ea, MessageTracker<T> messageTracker)
         {
-            messageTracker.SetStatus(ea.DeliveryTag, ea.Multiple, SendStatus.Failed);
+            messageTracker.SetStatus(ea.DeliveryTag, SendStatus.Failed);
         }
 
         private void ReturnedCallback<T>(BasicReturnEventArgs ea, MessageTracker<T> messageTracker)

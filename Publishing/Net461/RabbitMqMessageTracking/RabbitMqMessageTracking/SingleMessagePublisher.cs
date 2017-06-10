@@ -12,7 +12,7 @@ namespace RabbitMqMessageTracking
             string routingKey,
             T message)
         {
-            var messageTracker = await SendMessagesAsync<T>(exchange, routingKey, new List<T>() { message }, 1);
+            var messageTracker = await SendMessagesAsync<T>(exchange, routingKey, new List<T>() { message }, 1, TimeSpan.FromTicks(0));
 
             return messageTracker.GetMessageStates().First();
         }
@@ -23,7 +23,7 @@ namespace RabbitMqMessageTracking
             byte retryLimit,
             short retryPeriodMs)
         {
-            var messageTracker = await SendBatchWithRetryAsync<T>(exchange, routingKey, new List<T>() { message }, retryLimit, retryPeriodMs, 1);
+            var messageTracker = await SendBatchWithRetryAsync<T>(exchange, routingKey, new List<T>() { message }, retryLimit, retryPeriodMs, 1, TimeSpan.FromTicks(0));
 
             return messageTracker.GetMessageStates().First();
         }
