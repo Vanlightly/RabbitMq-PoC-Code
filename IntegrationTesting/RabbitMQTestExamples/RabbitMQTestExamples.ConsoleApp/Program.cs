@@ -20,15 +20,10 @@ namespace RabbitMQTestExamples.ConsoleApp
         {
             try
             {
-                Console.WriteLine("Hello World!");
-
                 var cts = new CancellationTokenSource();
                 var processor = new RealProcessor();
                 var consumer = new Consumer(processor);
                 consumer.Consume(cts.Token, "queueX");
-
-                var producer = new Publisher();
-                producer.Publish("queueX", "hello");
 
                 Console.WriteLine("Press any key to shutdown");
                 Console.ReadKey();

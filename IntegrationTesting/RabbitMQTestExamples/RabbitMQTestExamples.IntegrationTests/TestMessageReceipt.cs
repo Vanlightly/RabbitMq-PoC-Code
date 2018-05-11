@@ -15,12 +15,12 @@ namespace RabbitMQTestExamples.IntegrationTests
             QueueDestroyer.DeleteQueue("queueX", "/");
             var cts = new CancellationTokenSource();
             var fake = new FakeProcessor();
-            var consumer = new Consumer(fake);
+            var myMicroservice = new Consumer(fake);
 
             // ACT
-            consumer.Consume(cts.Token, "queueX");
+            myMicroservice.Consume(cts.Token, "queueX");
 
-            var producer = new Publisher();
+            var producer = new TestPublisher();
             producer.Publish("queueX", "hello");
 
             Thread.Sleep(1000);

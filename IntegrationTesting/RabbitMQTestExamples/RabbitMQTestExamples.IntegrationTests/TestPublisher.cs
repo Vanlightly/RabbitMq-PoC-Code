@@ -3,9 +3,9 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace RabbitMQTestExamples.ConsoleApp
+namespace RabbitMQTestExamples.IntegrationTests
 {
-    public class Publisher
+    public class TestPublisher
     {
         public void Publish(string queueName, string message)
         {

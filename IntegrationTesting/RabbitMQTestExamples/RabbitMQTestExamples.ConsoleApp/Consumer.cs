@@ -28,10 +28,10 @@ namespace RabbitMQTestExamples.ConsoleApp
                     using (var channel = connection.CreateModel())
                     {
                         channel.QueueDeclare(queue: queueName,
-                                     durable: false,
-                                     exclusive: false,
-                                     autoDelete: false,
-                                     arguments: null);
+                                        durable: false,
+                                        exclusive: false,
+                                        autoDelete: false,
+                                        arguments: null);
 
                         var consumer = new EventingBasicConsumer(channel);
                         consumer.Received += (model, ea) =>
@@ -42,7 +42,7 @@ namespace RabbitMQTestExamples.ConsoleApp
                         };
                         channel.BasicConsume(queue: queueName,
                                             autoAck: false,
-                                             consumer: consumer);
+                                                consumer: consumer);
 
                         while (!token.IsCancellationRequested)
                             Thread.Sleep(1000);
