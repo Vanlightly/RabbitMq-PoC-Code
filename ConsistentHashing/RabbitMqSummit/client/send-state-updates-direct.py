@@ -9,16 +9,17 @@ import datetime
 connect_node = sys.argv[1]
 node_count = int(sys.argv[2])
 count = int(sys.argv[3])
-client_count = int(sys.argv[4])
+queue = sys.argv[4]
+state_count = int(sys.argv[5])
+
+if state_count > 10:
+    print("State count limit is 10")
+    exit(1)
 
 terminate = False
 exit_triggered = False
 last_ack_time = datetime.datetime.now()
 last_ack = 0
-
-clients = []
-for i in range(1, client_count+1):
-    clients.append(f"Client{i}")
 
 node_names = []
 
@@ -27,6 +28,9 @@ pending_messages = list()
 pending_acks = list()
 pos_acks = 0
 neg_acks = 0
+state_index = 0
+states = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']
+val = 0
 
 for i in range(1, node_count+1):
     node_names.append(f"rabbitmq{i}")
@@ -93,26 +97,24 @@ def on_delivery_confirmation(frame):
         exit(0)
 
 def publish_messages():
-    global connection, channel, count, clients, client_count, pending_messages, curr_pos
+    global connection, channel, queue, count, pending_messages, curr_pos, states, state_count, state_index, val
 
-    client_index = 0
     while curr_pos < count:
         if channel.is_open:
             curr_pos += 1
-            msg = f"Client {clients[client_index]} Num: {curr_pos}"
-            channel.basic_publish(exchange='orders',
-                                routing_key=str(client_index),
-                                body=msg,
+            body = f"{states[state_index]}={val}"
+            channel.basic_publish(exchange='', 
+                                routing_key=queue,
+                                body=body,
                                 properties=pika.BasicProperties(content_type='text/plain',
                                                         delivery_mode=2))
 
-            # channel.basic_publish(exchange='',
-            #                     routing_key='orders001',
-            #                     body=msg,
-            #                     properties=pika.BasicProperties(content_type='text/plain',
-            #                                             delivery_mode=2))
-            
             pending_messages.append(curr_pos)
+
+            state_index += 1
+            if state_index == state_count:
+                state_index = 0
+                val += 1
 
             if curr_pos % 1000 == 0:
                 if len(pending_messages) > 10000:
@@ -120,10 +122,6 @@ def publish_messages():
                     if channel.is_open:
                         connection.add_timeout(2, publish_messages)
                         break
-            
-            client_index += 1
-            if client_index == client_count:
-                client_index = 0
             
         else:
             print("Channel closed, ceasing publishing")
@@ -189,14 +187,3 @@ while terminate == False:
 
         if terminate == False:
             reconnect()
-
-# sec_since_last_ack = (datetime.datetime.now() - last_ack_time).seconds
-    # while sec_since_last_ack < 15:
-    #     sec_since_last_ack = (datetime.datetime.now() - last_ack_time).seconds
-    #     time.sleep(1)
-    
-    # # this is not true, but because of this bug https://github.com/pika/pika/issues/1137
-    # # I am unable to know when all acks have been received
-    # print(f"Pos acks: {pos_acks} Neg acks: {neg_acks}")
-    # connection.close()
-    # exit(0)

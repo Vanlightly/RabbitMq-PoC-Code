@@ -78,7 +78,7 @@ for x in range(count):
 
 time.sleep(10)
 print("Sent " + str(sent) + " messages")
-res = channel.queue_declare(queue=queue, durable=True)
+res = channel.queue_declare(queue=queue, durable=True, arguments={"x-queue-mode": "lazy"})
 message_count = res.method.message_count
 print(str(message_count) + " messages in the queue")
 print(str(success - message_count) + " messages lost")

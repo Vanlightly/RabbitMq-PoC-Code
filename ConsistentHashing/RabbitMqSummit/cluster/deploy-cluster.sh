@@ -17,6 +17,9 @@ fi
 
 blockade status
 
+echo "waiting for all nodes to join cluster"
+sleep 10
+
 echo "enabling Consistent Hash Exchange on all nodes..."
 
 bash enable-c-hash-ex.sh
