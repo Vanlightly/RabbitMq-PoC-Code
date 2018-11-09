@@ -5,15 +5,22 @@ import sys
 import time
 import subprocess
 import datetime
+import uuid
+import random
+from command_args import get_args, get_mandatory_arg, get_optional_arg
 
-connect_node = sys.argv[1]
-node_count = int(sys.argv[2])
-count = int(sys.argv[3])
-queue = sys.argv[4]
-state_count = int(sys.argv[5])
+args = get_args(sys.argv)
+
+connect_node = get_optional_arg(args, "--node", "rabbitmq1")
+node_count = int(get_optional_arg(args, "--cluster-size", "3"))
+queue = get_mandatory_arg(args, "--queue")
+count = int(get_mandatory_arg(args, "--msgs"))
+state_count = int(get_mandatory_arg(args, "--keys"))
+dup_rate = float(get_optional_arg(args, "--dup-rate", "0"))
+total = count * state_count
 
 if state_count > 10:
-    print("State count limit is 10")
+    print("Key count limit is 10")
     exit(1)
 
 terminate = False
@@ -30,7 +37,7 @@ pos_acks = 0
 neg_acks = 0
 state_index = 0
 states = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']
-val = 0
+val = 1
 
 for i in range(1, node_count+1):
     node_names.append(f"rabbitmq{i}")
@@ -59,7 +66,7 @@ def on_channel_open(chan):
 # this is ignoring the posibility of ack + return
 # do not use in production code
 def on_delivery_confirmation(frame):
-    global last_ack_time, pending_messages, pos_acks, neg_acks, last_ack, count
+    global last_ack_time, pending_messages, pos_acks, neg_acks, last_ack, count, total
 
     if isinstance(frame.method, spec.Basic.Ack) or isinstance(frame.method, spec.Basic.Nack):
         if frame.method.multiple == True:
@@ -91,23 +98,35 @@ def on_delivery_confirmation(frame):
         print(f"Pos acks: {pos_acks} Neg acks: {neg_acks}")
         last_ack = curr_ack
 
-    if (pos_acks + neg_acks) >= count:
+    if (pos_acks + neg_acks) >= total:
         print(f"Final Count => Pos acks: {pos_acks} Neg acks: {neg_acks}")
         connection.close()
         exit(0)
 
 def publish_messages():
-    global connection, channel, queue, count, pending_messages, curr_pos, states, state_count, state_index, val
+    global connection, channel, queue, count, pending_messages, curr_pos, states, state_count, state_index, val, dup_rate
 
-    while curr_pos < count:
+    while curr_pos < total:
         if channel.is_open:
             curr_pos += 1
             body = f"{states[state_index]}={val}"
+            corr_id = str(uuid.uuid4())
             channel.basic_publish(exchange='', 
                                 routing_key=queue,
                                 body=body,
                                 properties=pika.BasicProperties(content_type='text/plain',
-                                                        delivery_mode=2))
+                                                        delivery_mode=2,
+                                                        correlation_id=corr_id))
+
+            # potentially send a duplicate if enabled
+            if dup_rate > 0:
+                if random.uniform(0, 1) < dup_rate:
+                    channel.basic_publish(exchange='', 
+                                routing_key=queue,
+                                body=body,
+                                properties=pika.BasicProperties(content_type='text/plain',
+                                                        delivery_mode=2,
+                                                        correlation_id=corr_id))
 
             pending_messages.append(curr_pos)
 

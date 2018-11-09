@@ -254,5 +254,7 @@ paket-files/
 # Blocakde
 .blockade/
 
-# venv
+# python
 venv*/
+vr/
+__pycache__
