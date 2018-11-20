@@ -1,0 +1,48 @@
+# Message Ordering
+
+python declare-queue.py output-seq 2 true
+
+
+----------------------------------
+## Competing Consumers
+----------------------------------
+Cluster
+Terminal (cluster): python declare-queue.py rabbitmq1 states-all 2 true
+
+Client
+Terminal 1: python send-state-updates-direct.py --queue states-all --msgs 20 --keys 1
+Terminal 2-5: python consumer.py --in-queue state-all --out-queue output-seq --min-ms 0 --max-ms 0 --prefetch 1
+Terminal 6: python output-consumer.py --queue output-seq
+
+--------------------------------------
+Partitioned
+--------------------------------------
+
+Cluster
+Terminal: python declare-hashing-infra.py states states 4 2 true
+
+Client
+Terminal 1: python send-state-updates-hash-ex.py --ex states --msgs 20 --keys 5
+Terminal 2: python consumer.py --in-queue states001 --out-queue output-seq --min-ms 0 --max-ms 0 --prefetch 1
+Terminal 3: python consumer.py --in-queue states002 --out-queue output-seq --min-ms 0 --max-ms 0 --prefetch 1
+Terminal 4: python consumer.py --in-queue states003 --out-queue output-seq --min-ms 0 --max-ms 0 --prefetch 1
+Terminal 5: python consumer.py --in-queue states004 --out-queue output-seq --min-ms 0 --max-ms 0 --prefetch 1
+Terminal 6: python output-consumer.py --queue output-seq
+
+Note: show the impact on final ordering with a single consumer that is slower than the others
+
+--------------------------------------
+Hash Exchange
+--------------------------------------
+Cluster
+Terminal: python declare-hashing-infra.py states states 20 2 true
+
+Client
+Terminal 1: python send-state-updates-hash-ex.py rabbitmq1 6 100 states
+Terminal 2: python consumer.py rabbitmq2 states001 10 0 10
+Terminal 3: python consumer.py rabbitmq3 states002 10 0 10
+Terminal 4: python consumer.py rabbitmq4 states003 10 0 10
+Terminal 5: python consumer.py rabbitmq5 states004 10 0 10
+Terminal 6: python output-consumer.py rabbitmq3
+
+Note: show that slowing down a consumer has no affect on final ordering
