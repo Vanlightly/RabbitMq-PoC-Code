@@ -25,22 +25,20 @@ namespace RabbitMqMessageTracking
         /// messages have been sent the channel can be closed prematurely due to incorrect ordering of confirms. The safety period keeps the channel open for an extra period, just in case we
         /// receive more confirms. This safety period is not required when the messageBatchSize is 1</param>
         /// <returns>A message tracker that provides you with the delivery status (to the exchange and queues - not the consumer) information, including errors that may have occurred</returns>
-        public async Task<IMessageTracker<T>> SendMessagesAsync<T>(string exchange,
+        public IMessageTracker<T> SendMessages<T>(string exchange,
             string routingKey,
             List<T> messages,
-            int messageBatchSize,
-            TimeSpan safetyPeriod)
+            int messageBatchSize)
         {
             var messageTracker = new MessageTracker<T>(messages);
 
             try
             {
-                await SendBatchAsync(exchange, 
+                SendBatch(exchange, 
                     routingKey, 
                     messageTracker.GetMessageStates(), 
                     messageTracker, 
-                    messageBatchSize,
-                    safetyPeriod).ConfigureAwait(false);
+                    messageBatchSize);
             }
             catch (Exception ex)
             {
@@ -71,8 +69,7 @@ namespace RabbitMqMessageTracking
             List<T> messages,
             byte retryLimit,
             short retryPeriodMs,
-            int messageBatchSize,
-            TimeSpan safetyPeriod)
+            int messageBatchSize)
         {
             var messageTracker = new MessageTracker<T>(messages);
 
@@ -85,8 +82,7 @@ namespace RabbitMqMessageTracking
                     retryLimit, 
                     retryPeriodMs, 
                     1, 
-                    messageBatchSize,
-                    safetyPeriod).ConfigureAwait(false);
+                    messageBatchSize).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -103,19 +99,17 @@ namespace RabbitMqMessageTracking
             byte retryLimit,
             short retryPeriodMs,
             byte attempt,
-            int messageBatchSize,
-            TimeSpan safetyPeriod)
+            int messageBatchSize)
         {
             Console.WriteLine("Making attempt #" + attempt);
 
             try
             {
-                await SendBatchAsync(exchange,
+                SendBatch(exchange,
                     routingKey, 
                     outgoingMessages, 
                     messageTracker, 
-                    messageBatchSize,
-                    safetyPeriod).ConfigureAwait(false);
+                    messageBatchSize);
             }
             catch (Exception ex)
             {
@@ -143,8 +137,7 @@ namespace RabbitMqMessageTracking
                     retryLimit, 
                     retryPeriodMs, 
                     attempt, 
-                    messageBatchSize,
-                    safetyPeriod).ConfigureAwait(false);
+                    messageBatchSize).ConfigureAwait(false);
             }
             else
             {
@@ -152,12 +145,11 @@ namespace RabbitMqMessageTracking
             }
         }
 
-        private async Task SendBatchAsync<T>(string exchange,
+        private void SendBatch<T>(string exchange,
             string routingKey,
             List<MessageState<T>> messageStates,
             MessageTracker<T> messageTracker,
-            int messageBatchSize,
-            TimeSpan safetyPeriod)
+            int messageBatchSize)
         {
             messageTracker.AttemptsMade++;
 
@@ -224,12 +216,6 @@ namespace RabbitMqMessageTracking
                     }
 
                     channel.WaitForConfirms(TimeSpan.FromMinutes(1));
-
-                    if (safetyPeriod.Ticks > 0)
-                    {
-                        // add extra buffer in case of out of order last confirm
-                        await Task.Delay(safetyPeriod).ConfigureAwait(false);
-                    }
                 }
             } // already disposed exception here
         }

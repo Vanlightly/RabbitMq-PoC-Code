@@ -88,7 +88,7 @@ namespace RabbitMqMessageTracking
                 var sw = new Stopwatch();
                 sw.Start();
                 var bulkEventPublisher = new BulkMessagePublisher();
-                var messageTracker = await bulkEventPublisher.SendBatchWithRetryAsync(exchange, routingKey, orders, 2, 1000, messageBatchSize, TimeSpan.FromSeconds(1));
+                var messageTracker = await bulkEventPublisher.SendBatchWithRetryAsync(exchange, routingKey, orders, 2, 1000, messageBatchSize);
                 
                 sw.Stop();
                 Console.WriteLine("Milliseconds elapsed: " + (int)sw.Elapsed.TotalMilliseconds);
@@ -213,7 +213,7 @@ namespace RabbitMqMessageTracking
                 var sw = new Stopwatch();
                 sw.Start();
                 var bulkEventPublisher = new BulkMessagePublisher();
-                var messageTracker = await bulkEventPublisher.SendBatchWithRetryAsync(exchange, routingKey, orders, 2, 1000, messageBatchSize, TimeSpan.FromSeconds(1));
+                var messageTracker = await bulkEventPublisher.SendBatchWithRetryAsync(exchange, routingKey, orders, 2, 1000, messageBatchSize);
                 
                 sw.Stop();
                 Console.WriteLine("Milliseconds elapsed: " + (int)sw.Elapsed.TotalMilliseconds);
