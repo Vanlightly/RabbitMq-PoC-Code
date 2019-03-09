@@ -27,15 +27,23 @@ namespace RabbitMqMessageTracking
 
         static async Task MainAsync()
         {
-            Console.WriteLine("This code is explained in my blog series on RabbitMq Publishing starting at: http://jack-vanlightly.com/blog/2017/3/11/sending-messages-in-bulk-and-tracking-delivery-status-rabbitmq-publishing-part-2");
-            Console.WriteLine("Enter 2 for the code of Part 2");
-            Console.WriteLine("Enter 3 for the code of Part 3");
-            int part = int.Parse(Console.ReadLine());
+            try
+            {
+                Console.WriteLine("This code is explained in my blog series on RabbitMq Publishing starting at: http://jack-vanlightly.com/blog/2017/3/11/sending-messages-in-bulk-and-tracking-delivery-status-rabbitmq-publishing-part-2");
+                Console.WriteLine("Enter 2 for the code of Part 2");
+                Console.WriteLine("Enter 3 for the code of Part 3");
+                int part = int.Parse(Console.ReadLine());
 
-            if (part == 2)
-                await Part2().ConfigureAwait(false);
-            else if (part == 3)
-                await Part3().ConfigureAwait(false);
+                if (part == 2)
+                    await Part2().ConfigureAwait(false);
+                else if (part == 3)
+                    await Part3().ConfigureAwait(false);
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+
+            }
         }
 
 

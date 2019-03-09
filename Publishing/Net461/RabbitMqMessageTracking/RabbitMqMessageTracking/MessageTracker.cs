@@ -50,31 +50,6 @@ namespace RabbitMqMessageTracking
             AttemptsMade = attemptsMade;
         }
 
-        public void AssignStatuses()
-        {
-            var orderedList = _statesMaster.Where(x => x.SequenceNumber > 0).OrderByDescending(x => x.SequenceNumber).ToList();
-
-            if (orderedList.Any())
-            {
-                SendStatus lastAcknowledgedStatus = orderedList.First().Status;
-
-                foreach(var messageState in orderedList)
-                {
-                    if(messageState.Acknowledged)
-                        lastAcknowledgedStatus = messageState.Status;
-
-                    if (messageState.Status == SendStatus.PendingResponse)
-                    {
-                        messageState.Status = lastAcknowledgedStatus;
-                        messageState.Acknowledged = true;
-                    }
-                }
-            }
-
-            foreach (var messageState in _statesMaster)
-                messageState.SequenceNumber = 0;
-        }
-
         public MessageTracker<T> GetCloneWithResetAcknowledgements()
         {
             // no need to keep messages that will not be retried in
@@ -89,6 +64,10 @@ namespace RabbitMqMessageTracking
                     statesByMessageId.TryAdd(key, result);
                 }
             }
+            
+            // reset sequence numbers
+            foreach (var message in _statesMaster)
+                message.SequenceNumber = 0;
 
             return new MessageTracker<T>(statesByMessageId, _statesMaster, AttemptsMade);
         }
@@ -139,6 +118,16 @@ namespace RabbitMqMessageTracking
         {
             var messageState = _statesByMessageId[messageId];
             SetSendStatus(messageState, status, description);
+        }
+
+        public void SetMultipleStatus(ulong deliveryTag, SendStatus status)
+        {
+            var pendingResponse = _statesMaster.Where(x => x.SequenceNumber > 0
+                                            && x.SequenceNumber <= deliveryTag
+                                            && x.Status == SendStatus.PendingResponse);
+
+            foreach (var pending in pendingResponse)
+                SetStatus(pending.SequenceNumber, status);
         }
 
         public void RegisterChannelClosed(string reason)

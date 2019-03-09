@@ -121,11 +121,7 @@ namespace RabbitMqMessageTracking
             {
                 messageTracker.RegisterUnexpectedException(ex);
             }
-            finally
-            {
-                messageTracker.AssignStatuses();
-            }
-
+            
             if (messageTracker.ShouldRetry() && (attempt - 1) <= retryLimit)
             {
                 attempt++;
@@ -240,12 +236,18 @@ namespace RabbitMqMessageTracking
 
         private void AckCallback<T>(BasicAckEventArgs ea, MessageTracker<T> messageTracker)
         {
-            messageTracker.SetStatus(ea.DeliveryTag, SendStatus.Success);
+            if (ea.Multiple)
+                messageTracker.SetMultipleStatus(ea.DeliveryTag, SendStatus.Success);
+            else
+                messageTracker.SetStatus(ea.DeliveryTag, SendStatus.Success);
         }
 
         private void NackCallback<T>(BasicNackEventArgs ea, MessageTracker<T> messageTracker)
         {
-            messageTracker.SetStatus(ea.DeliveryTag, SendStatus.Failed);
+            if (ea.Multiple)
+                messageTracker.SetMultipleStatus(ea.DeliveryTag, SendStatus.Failed);
+            else
+                messageTracker.SetStatus(ea.DeliveryTag, SendStatus.Failed);
         }
 
         private void ReturnedCallback<T>(BasicReturnEventArgs ea, MessageTracker<T> messageTracker)
